@@ -4,14 +4,29 @@ import { Dashboard } from './components/Dashboard';
 import { AuditView } from './components/AuditView';
 import { ContentOptimizer } from './components/ContentOptimizer';
 import { Assistant } from './components/Assistant';
+import { AdminDashboard } from './components/AdminDashboard';
+import { Login } from './components/Login';
 import { AppView, SiteAuditResult, SEOIssue } from './types';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { db } from './services/db';
 
-function App() {
+const AppContent = () => {
+  const { user, isLoading } = useAuth();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [lastAudit, setLastAudit] = useState<SiteAuditResult | null>(null);
   const [assistantInitialMessage, setAssistantInitialMessage] = useState<string | undefined>(undefined);
 
+  // If auth is loading, we could show a spinner, but simplest to wait
+  if (isLoading) return null;
+
+  // If not authenticated, show Login
+  if (!user) {
+    return <Login />;
+  }
+
   const handleAuditComplete = (result: SiteAuditResult) => {
+    // Save to local database
+    db.saveAudit(result);
     setLastAudit(result);
     setCurrentView(AppView.DASHBOARD);
   };
@@ -43,6 +58,12 @@ function App() {
         return <ContentOptimizer />;
       case AppView.ASSISTANT:
         return <Assistant initialMessage={assistantInitialMessage} />;
+      case AppView.ADMIN:
+        if (!user.isAdmin) {
+            // Fallback for unauthorized access
+            return <Dashboard lastAudit={lastAudit} onNewAudit={() => setCurrentView(AppView.AUDIT)} />;
+        }
+        return <AdminDashboard />;
       default:
         return <div>View not found</div>;
     }
@@ -52,6 +73,14 @@ function App() {
     <Layout currentView={currentView} onChangeView={setCurrentView}>
       {renderContent()}
     </Layout>
+  );
+};
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

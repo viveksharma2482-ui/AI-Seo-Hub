@@ -33,6 +33,7 @@ export enum AppView {
   AUDIT = 'AUDIT',
   CONTENT_OPTIMIZER = 'CONTENT_OPTIMIZER',
   ASSISTANT = 'ASSISTANT',
+  ADMIN = 'ADMIN',
 }
 
 export interface ChatMessage {
@@ -40,4 +41,12 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string;
+  isAdmin?: boolean;
 }

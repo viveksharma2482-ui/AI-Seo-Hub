@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { SiteAuditResult, SEOIssue } from '../types';
 import { performSiteAudit } from '../services/gemini';
-import { Search, Loader2, AlertCircle, Check, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { Search, Loader2, AlertCircle, Check, ChevronDown, ChevronUp, ExternalLink, Activity } from 'lucide-react';
 
 interface AuditViewProps {
   onAuditComplete: (result: SiteAuditResult) => void;
@@ -12,6 +12,7 @@ interface AuditViewProps {
 export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit, onFixIssue }) => {
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null);
 
@@ -21,14 +22,31 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
 
     setIsLoading(true);
     setError(null);
-
+    
+    // Simulate progress steps for better UX
+    setLoadingStep('Initializing PageSpeed API...');
+    
     try {
+      // We can't actually hook into the exact progress of the await, 
+      // but we can set a timer to update the text to make it feel responsive
+      const timer = setTimeout(() => {
+        setLoadingStep('Fetching Core Web Vitals...');
+      }, 1500);
+
+      const timer2 = setTimeout(() => {
+        setLoadingStep('Gemini analyzing technical data...');
+      }, 4000);
+
       const result = await performSiteAudit(url);
+      
+      clearTimeout(timer);
+      clearTimeout(timer2);
       onAuditComplete(result);
     } catch (err: any) {
       setError(err.message || 'Failed to perform audit. Please check your API key and try again.');
     } finally {
       setIsLoading(false);
+      setLoadingStep('');
     }
   };
 
@@ -40,7 +58,7 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm">
         <h1 className="text-2xl font-bold text-slate-900 mb-2">New Site Audit</h1>
-        <p className="text-slate-500 mb-6">Enter a URL to generate a comprehensive technical SEO report using AI analysis.</p>
+        <p className="text-slate-500 mb-6">Enter a URL to generate a comprehensive technical SEO report using real-time PageSpeed data and AI analysis.</p>
         
         <form onSubmit={handleSubmit} className="relative max-w-2xl">
           <div className="flex shadow-sm rounded-lg">
@@ -63,7 +81,7 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Analyzing Site...
+                {loadingStep || 'Analyzing Site...'}
               </>
             ) : (
               <>

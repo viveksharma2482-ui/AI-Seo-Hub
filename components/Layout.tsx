@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Search, FileText, MessageSquare, Menu, X, Globe, Zap } from 'lucide-react';
+import { LayoutDashboard, Search, FileText, MessageSquare, Menu, X, Globe, Zap, LogOut, Shield } from 'lucide-react';
 import { AppView } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,6 +11,7 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Overview', icon: LayoutDashboard },
@@ -17,6 +19,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeV
     { id: AppView.CONTENT_OPTIMIZER, label: 'Content Optimizer', icon: FileText },
     { id: AppView.ASSISTANT, label: 'AI Assistant', icon: MessageSquare },
   ];
+
+  // Add Admin item if user is admin
+  if (user?.isAdmin) {
+    navItems.push({ id: AppView.ADMIN, label: 'Admin Console', icon: Shield });
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -50,6 +57,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeV
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentView === item.id;
+            // Highlight Admin differently
+            const isSpecial = item.id === AppView.ADMIN;
+            
             return (
               <button
                 key={item.id}
@@ -61,11 +71,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeV
                   flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors
                   ${isActive 
                     ? 'bg-brand-600 text-white' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    : isSpecial 
+                      ? 'text-indigo-300 hover:text-white hover:bg-indigo-900/50' 
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }
                 `}
               >
-                <Icon className="w-5 h-5 mr-3" />
+                <Icon className={`w-5 h-5 mr-3 ${isSpecial && !isActive ? 'text-indigo-400' : ''}`} />
                 {item.label}
               </button>
             );
@@ -73,15 +85,38 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeV
         </nav>
 
         <div className="absolute bottom-0 w-full p-4 border-t border-slate-800">
-          <div className="flex items-center">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-400 to-purple-500 flex items-center justify-center text-xs font-bold text-white">
-              AI
+          {user ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center min-w-0">
+                <img 
+                  src={user.avatar} 
+                  alt={user.name} 
+                  className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0" 
+                />
+                <div className="ml-3 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{user.name}</p>
+                  <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                </div>
+              </div>
+              <button 
+                onClick={logout}
+                className="ml-2 text-slate-400 hover:text-white"
+                title="Sign out"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-white">Gemini Pro</p>
-              <p className="text-xs text-slate-400">Powered by Google</p>
+          ) : (
+             <div className="flex items-center">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-400 to-purple-500 flex items-center justify-center text-xs font-bold text-white">
+                AI
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-white">Gemini Pro</p>
+                <p className="text-xs text-slate-400">Powered by Google</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </aside>
 

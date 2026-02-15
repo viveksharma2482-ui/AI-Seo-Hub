@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SiteAuditResult, ContentAnalysisResult } from "../types";
+import { getPageSpeedMetrics } from "./pagespeed";
 
 // Initialize Gemini Client
 // IMPORTANT: Access API key from process.env.API_KEY
@@ -8,21 +9,54 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const MODEL_NAME = 'gemini-3-flash-preview';
 
 /**
- * Performs a simulated full site audit using Search Grounding and specific prompting.
- * Since we can't crawl directly from the browser, we rely on Gemini's search capabilities
- * and internal knowledge to assess the public facing version of the site.
+ * Performs a site audit using real-time PageSpeed data + Gemini Search Grounding.
  */
 export const performSiteAudit = async (url: string): Promise<SiteAuditResult> => {
-  const prompt = `
-    Perform a comprehensive technical SEO audit for the website: ${url}.
-    
-    Use Google Search to identify:
-    1. Indexed pages and their meta descriptions.
-    2. Page load speed signals (Core Web Vitals info if available publicly).
-    3. Mobile responsiveness signals.
-    4. Common technical issues (SSL, redirect chains, robot.txt issues).
+  // 1. Fetch Real Data from Google PageSpeed Insights
+  // This makes the app "functional" by getting actual server latencies, CLS, LCP, etc.
+  const pageSpeedData = await getPageSpeedMetrics(url);
 
-    If you cannot access specific real-time metrics, estimate based on best practices for the technology stack detected or general search appearance.
+  // 2. Construct Prompt
+  let prompt = `
+    Perform a comprehensive technical SEO audit for the website: ${url}.
+  `;
+
+  if (pageSpeedData) {
+    // If we have real data, feed it to the model
+    const lighthouse = pageSpeedData.lighthouseResult;
+    const metrics = {
+      performance: lighthouse?.categories?.performance?.score * 100,
+      seo: lighthouse?.categories?.seo?.score * 100,
+      accessibility: lighthouse?.categories?.accessibility?.score * 100,
+      bestPractices: lighthouse?.categories?.['best-practices']?.score * 100,
+      audits: {
+        lcp: lighthouse?.audits?.['largest-contentful-paint'],
+        cls: lighthouse?.audits?.['cumulative-layout-shift'],
+        ttfb: lighthouse?.audits?.['server-response-time'],
+      }
+    };
+
+    prompt += `
+      I have fetched REAL-TIME metrics from Google PageSpeed Insights. 
+      Use this data as the absolute source of truth for scores and performance issues.
+      
+      Real Data:
+      ${JSON.stringify(metrics, null, 2)}
+      
+      Analyze the specific audit failures in the data (like High LCP or CLS) and explain them in the 'issues' section.
+    `;
+  } else {
+    prompt += `
+      I could not fetch real-time PageSpeed data (API unavailable). 
+      Please estimate scores based on a visual analysis using Google Search and general best practices for this type of site.
+    `;
+  }
+
+  prompt += `
+    Additionally, use Google Search to identify:
+    1. Indexed pages and their meta descriptions (which PageSpeed doesn't show).
+    2. Mobile responsiveness signals (if not in data).
+    3. Common technical issues (SSL, redirect chains, robot.txt issues).
 
     Return the result strictly as a JSON object matching the schema provided.
     Ensure 'scores' are integers between 0 and 100.
@@ -87,7 +121,6 @@ export const performSiteAudit = async (url: string): Promise<SiteAuditResult> =>
 
   } catch (error) {
     console.error("Audit failed:", error);
-    // Fallback for demo purposes if API fails or quota exceeded
     throw error;
   }
 };
