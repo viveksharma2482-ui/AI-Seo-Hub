@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Loader2, AlertCircle, Check, Eye, EyeOff } from 'lucide-react';
+import { Zap, Loader2, Check, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotification } from '../contexts/NotificationContext';
 
 // Placeholder for Google Type
 declare global {
@@ -11,10 +12,10 @@ declare global {
 
 export const Login: React.FC = () => {
   const { login, register, loginWithGoogle } = useAuth();
+  const { showNotification } = useNotification();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -37,10 +38,13 @@ export const Login: React.FC = () => {
           }
         });
 
-        window.google.accounts.id.renderButton(
-          document.getElementById("google-signin-btn"),
-          { theme: "outline", size: "large", width: "100%" }
-        );
+        const btn = document.getElementById("google-signin-btn");
+        if (btn) {
+           window.google.accounts.id.renderButton(
+            btn,
+            { theme: "outline", size: "large", width: "100%" }
+          );
+        }
       }
     };
 
@@ -56,14 +60,14 @@ export const Login: React.FC = () => {
       }, 500);
       return () => clearInterval(interval);
     }
-  }, []);
+  }, [activeTab]); // Re-run when tab changes to ensure button renders
 
   const handleGoogleLogin = async (token: string) => {
-    setError(null);
     try {
       await loginWithGoogle(token);
+      showNotification("Successfully logged in with Google", "success");
     } catch (err: any) {
-      setError(err.message || "Google sign in failed");
+      showNotification(err.message || "Google sign in failed", "error");
     }
   };
 
@@ -82,10 +86,9 @@ export const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
 
     if (activeTab === 'register' && !isPasswordValid) {
-      setError("Please ensure your password meets all requirements.");
+      showNotification("Please ensure your password meets all requirements.", "error");
       return;
     }
 
@@ -94,11 +97,14 @@ export const Login: React.FC = () => {
     try {
       if (activeTab === 'register') {
         await register(formData.email, formData.password, formData.name);
+        showNotification("Account created successfully!", "success");
       } else {
         await login(formData.email, formData.password);
+        showNotification("Welcome back!", "success");
       }
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      // Show descriptive error message in toast
+      showNotification(err.message || 'Authentication failed', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -106,7 +112,6 @@ export const Login: React.FC = () => {
 
   const switchTab = (tab: 'login' | 'register') => {
     setActiveTab(tab);
-    setError(null);
     setFormData({ name: '', email: '', password: '' });
   };
 
@@ -154,7 +159,7 @@ export const Login: React.FC = () => {
           <div className="py-8 px-4 sm:px-10">
             {/* Google Login Section */}
             <div className="mb-6">
-              <div id="google-signin-btn" className="w-full flex justify-center"></div>
+              <div id="google-signin-btn" className="w-full flex justify-center h-[44px]"></div>
               <div className="mt-6 relative">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200" />
@@ -166,13 +171,6 @@ export const Login: React.FC = () => {
             </div>
 
             <form className="space-y-6" onSubmit={handleSubmit}>
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start text-sm text-red-600">
-                  <AlertCircle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
-                  {error}
-                </div>
-              )}
-
               {activeTab === 'register' && (
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-slate-700">

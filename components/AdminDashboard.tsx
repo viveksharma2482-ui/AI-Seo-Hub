@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, Activity, Server, Trash2, Shield, Search, User as UserIcon } from 'lucide-react';
+import { useNotification } from '../contexts/NotificationContext';
+import { Users, Activity, Server, Trash2, Shield, Search, User as UserIcon, AlertOctagon, Download, Upload, Database } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const AdminDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
+  const { showNotification } = useNotification();
   const [stats, setStats] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activityData, setActivityData] = useState<any[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = () => {
     setStats(db.getSystemStats());
@@ -41,14 +44,80 @@ export const AdminDashboard: React.FC = () => {
 
   const handleDeleteUser = (userId: string, email: string) => {
     if (email === currentUser?.email) {
-      alert("You cannot delete your own admin account.");
+      showNotification("You cannot delete your own admin account.", "error");
       return;
     }
     
+    // We use a simple confirm here. 
     if (window.confirm(`Are you sure you want to delete user ${email}? This action cannot be undone.`)) {
-      db.deleteUser(userId);
-      loadData(); // Refresh list
+      try {
+        // Pass both userId and email to ensure deletion works even if IDs are missing in legacy data
+        db.deleteUser(userId, email);
+        showNotification(`User ${email} deleted successfully.`, "success");
+        loadData(); // Refresh list immediately
+      } catch (error) {
+        console.error("Delete failed", error);
+        showNotification("Failed to delete user.", "error");
+      }
     }
+  };
+
+  const handleResetDatabase = () => {
+    if (window.confirm("DANGER: This will delete ALL users, audits, and account data. This action CANNOT be undone. Are you sure?")) {
+      if (window.confirm("Please confirm a second time. This will wipe the entire database and log you out.")) {
+         db.resetDatabase();
+         window.location.reload();
+      }
+    }
+  };
+
+  const handleBackup = () => {
+    try {
+      const data = db.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `seo_auditor_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showNotification("Backup file downloaded successfully", "success");
+    } catch (e) {
+      console.error(e);
+      showNotification("Failed to generate backup", "error");
+    }
+  };
+
+  const handleRestoreClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const result = event.target?.result as string;
+        const data = JSON.parse(result);
+        
+        if (window.confirm("This will overwrite existing data with the backup file. Current session will be preserved if possible. Continue?")) {
+           db.importData(data);
+           showNotification("Data restored successfully!", "success");
+           loadData(); // Refresh UI
+        }
+      } catch (err) {
+        console.error(err);
+        showNotification("Invalid backup file. Restoration failed.", "error");
+      } finally {
+        // Reset input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
   };
 
   if (!stats) return <div>Loading admin data...</div>;
@@ -192,21 +261,75 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Activity Chart */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-          <h3 className="text-lg font-semibold text-slate-900 mb-6">Audit Activity (7 Days)</h3>
-          <div className="flex-1 min-h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={activityData}>
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    labelStyle={{ color: '#64748b' }}
-                />
-                <Line type="monotone" dataKey="audits" stroke="#0ea5e9" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-              </LineChart>
-            </ResponsiveContainer>
+        {/* Activity Chart & System Controls */}
+        <div className="flex flex-col gap-6">
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+            <h3 className="text-lg font-semibold text-slate-900 mb-6">Audit Activity (7 Days)</h3>
+            <div className="flex-1 min-h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={activityData}>
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip 
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      labelStyle={{ color: '#64748b' }}
+                  />
+                  <Line type="monotone" dataKey="audits" stroke="#0ea5e9" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Data Management */}
+          <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 shadow-sm flex flex-col">
+            <div className="flex items-center mb-4">
+              <Database className="w-5 h-5 text-indigo-600 mr-2" />
+              <h3 className="text-lg font-bold text-indigo-900">Data Management</h3>
+            </div>
+            <p className="text-sm text-indigo-700 mb-4">
+              Backup your database to a file or restore from a previous backup to prevent data loss.
+            </p>
+            <div className="flex gap-3">
+               <button
+                  onClick={handleBackup}
+                  className="flex-1 px-3 py-2 bg-white border border-indigo-200 text-indigo-600 font-medium rounded-lg hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center shadow-sm text-sm"
+               >
+                 <Download className="w-4 h-4 mr-2" />
+                 Backup
+               </button>
+               <button
+                  onClick={handleRestoreClick}
+                  className="flex-1 px-3 py-2 bg-white border border-indigo-200 text-indigo-600 font-medium rounded-lg hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center shadow-sm text-sm"
+               >
+                 <Upload className="w-4 h-4 mr-2" />
+                 Restore
+               </button>
+               <input 
+                 type="file" 
+                 ref={fileInputRef} 
+                 onChange={handleFileChange} 
+                 className="hidden" 
+                 accept=".json"
+               />
+            </div>
+          </div>
+
+          {/* Danger Zone */}
+          <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm flex flex-col">
+            <div className="flex items-center mb-4">
+              <AlertOctagon className="w-5 h-5 text-red-600 mr-2" />
+              <h3 className="text-lg font-bold text-red-900">Danger Zone</h3>
+            </div>
+            <p className="text-sm text-red-700 mb-4">
+              Resetting the database will permanently delete all user accounts, audit history, and configuration.
+            </p>
+            <button
+              onClick={handleResetDatabase}
+              className="w-full px-4 py-2 bg-white border border-red-300 text-red-600 font-medium rounded-lg hover:bg-red-600 hover:text-white transition-colors flex items-center justify-center shadow-sm"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Reset Database
+            </button>
           </div>
         </div>
       </div>

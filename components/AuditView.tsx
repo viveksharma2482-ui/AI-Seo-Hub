@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { SiteAuditResult, SEOIssue } from '../types';
 import { performSiteAudit } from '../services/gemini';
-import { Search, Loader2, AlertCircle, Check, ChevronDown, ChevronUp, ExternalLink, Activity } from 'lucide-react';
+import { useNotification } from '../contexts/NotificationContext';
+import { Search, Loader2, ChevronDown, ChevronUp, ExternalLink, Sparkles, Zap, Info } from 'lucide-react';
 
 interface AuditViewProps {
   onAuditComplete: (result: SiteAuditResult) => void;
@@ -13,15 +14,15 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null);
+  const [issueTab, setIssueTab] = useState<'details' | 'ai'>('details');
+  const { showNotification } = useNotification();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) return;
 
     setIsLoading(true);
-    setError(null);
     
     // Simulate progress steps for better UX
     setLoadingStep('Initializing PageSpeed API...');
@@ -42,8 +43,9 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
       clearTimeout(timer);
       clearTimeout(timer2);
       onAuditComplete(result);
+      showNotification(`Audit for ${url} completed successfully!`, 'success');
     } catch (err: any) {
-      setError(err.message || 'Failed to perform audit. Please check your API key and try again.');
+      showNotification(err.message || 'Failed to perform audit. Please check your API key and try again.', 'error');
     } finally {
       setIsLoading(false);
       setLoadingStep('');
@@ -51,7 +53,12 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
   };
 
   const toggleIssue = (id: string) => {
-    setExpandedIssue(expandedIssue === id ? null : id);
+    if (expandedIssue === id) {
+        setExpandedIssue(null);
+    } else {
+        setExpandedIssue(id);
+        setIssueTab('details'); // Reset to details when opening new issue
+    }
   };
 
   return (
@@ -91,13 +98,6 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
             )}
           </button>
         </form>
-
-        {error && (
-          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start text-red-700">
-            <AlertCircle className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
-            <p className="text-sm">{error}</p>
-          </div>
-        )}
       </div>
 
       {lastAudit && !isLoading && (
@@ -114,7 +114,7 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
                 }`}
               >
                 <div 
-                  className="p-4 flex items-start justify-between cursor-pointer hover:bg-slate-50"
+                  className="p-4 flex items-start justify-between cursor-pointer hover:bg-slate-50 transition-colors"
                   onClick={() => toggleIssue(issue.id)}
                 >
                   <div className="flex items-start space-x-4">
@@ -139,28 +139,67 @@ export const AuditView: React.FC<AuditViewProps> = ({ onAuditComplete, lastAudit
                 </div>
 
                 {expandedIssue === issue.id && (
-                  <div className="px-4 pb-4 pt-0 pl-10">
-                    <div className="mt-2 text-sm text-slate-600 space-y-3">
-                      <p>{issue.description}</p>
-                      
-                      <div className="bg-slate-50 p-3 rounded border border-slate-100">
-                        <span className="block text-xs font-bold text-slate-500 mb-1 uppercase">Recommendation</span>
-                        <p>{issue.recommendation}</p>
-                      </div>
-
-                      <div className="pt-2 flex justify-end">
-                         <button
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             onFixIssue(issue);
-                           }}
-                           className="inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-800"
-                         >
-                           Ask AI Assistant to fix this
-                           <ExternalLink className="w-4 h-4 ml-1" />
-                         </button>
-                      </div>
+                  <div className="px-4 pb-4 pt-0">
+                    {/* Internal Tabs */}
+                    <div className="flex border-b border-slate-100 mb-4 mt-2">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setIssueTab('details'); }}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center ${
+                                issueTab === 'details' 
+                                ? 'border-brand-600 text-brand-600' 
+                                : 'border-transparent text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            <Info className="w-3 h-3 mr-2" />
+                            Issue Details
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setIssueTab('ai'); }}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center ${
+                                issueTab === 'ai' 
+                                ? 'border-indigo-500 text-indigo-600' 
+                                : 'border-transparent text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            <Sparkles className="w-3 h-3 mr-2" />
+                            AI Recommendation
+                        </button>
                     </div>
+
+                    {issueTab === 'details' ? (
+                        <div className="pl-4 pr-2 py-2">
+                            <p className="text-sm text-slate-600 leading-relaxed">{issue.description}</p>
+                            <div className="mt-4 p-3 bg-slate-50 rounded text-xs text-slate-500 border border-slate-100">
+                                <strong>Technical Note:</strong> Verify this issue against your latest server logs or Google Search Console data for improved accuracy.
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="pl-4 pr-2 py-2">
+                            <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 relative">
+                                <div className="absolute top-4 right-4">
+                                  <Zap className="w-4 h-4 text-indigo-400" />
+                                </div>
+                                <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wide mb-2 flex items-center">
+                                  Gemini Analysis
+                                </h4>
+                                <p className="text-sm text-indigo-900 leading-relaxed mb-4">
+                                  {issue.recommendation}
+                                </p>
+                                <div className="flex justify-end border-t border-indigo-100 pt-3">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onFixIssue(issue);
+                                        }}
+                                        className="inline-flex items-center text-xs font-medium text-indigo-700 hover:text-indigo-900 bg-white px-3 py-1.5 rounded shadow-sm border border-indigo-200 transition-colors"
+                                    >
+                                        Ask AI Assistant to fix this
+                                        <ExternalLink className="w-3 h-3 ml-1" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                   </div>
                 )}
               </div>

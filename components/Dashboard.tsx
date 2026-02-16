@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { SiteAuditResult } from '../types';
-import { TrendingUp, AlertTriangle, CheckCircle, Clock, ArrowRight, ExternalLink, Download, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { TrendingUp, AlertTriangle, CheckCircle, Clock, ExternalLink, Download, ChevronDown, ChevronUp, FileText, Zap, Sparkles, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { db } from '../services/db';
+import { useAuth } from '../contexts/AuthContext';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface DashboardProps {
   lastAudit: SiteAuditResult | null;
@@ -12,11 +14,19 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ lastAudit, onNewAudit }) => {
-  // If no lastAudit passed, try to get the latest from DB
-  const displayAudit = lastAudit || db.getLatestAudit();
-  const history = db.getAudits();
+  const { user } = useAuth();
+  // If no lastAudit passed, try to get the latest from DB for this user
+  const displayAudit = lastAudit || db.getLatestAudit(user?.id);
+  const history = user ? db.getAudits(user.id) : [];
+  
   const [isDownloading, setIsDownloading] = useState(false);
   const [showAllIssues, setShowAllIssues] = useState(false);
+  // Track expanded issue IDs
+  const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
+  // Track tab state for each issue: 'details' or 'ai'
+  const [issueTabs, setIssueTabs] = useState<Record<string, 'details' | 'ai'>>({});
+
+  const { showNotification } = useNotification();
 
   if (!displayAudit) {
     return (
@@ -50,15 +60,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ lastAudit, onNewAudit }) =
   const criticalIssues = issues.filter(i => i.severity === 'critical').length;
   const warnings = issues.filter(i => i.severity === 'warning').length;
 
+  const toggleIssue = (id: string) => {
+    const newExpanded = new Set(expandedIssues);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+      // Default to details tab when opening
+      setIssueTabs(prev => ({ ...prev, [id]: 'details' }));
+    }
+    setExpandedIssues(newExpanded);
+  };
+  
+  const setTabForIssue = (id: string, tab: 'details' | 'ai') => {
+    setIssueTabs(prev => ({ ...prev, [id]: tab }));
+  };
+
   const handleDownloadReport = async () => {
     const element = document.getElementById('audit-report-container');
     if (!element) return;
     
+    // Expand all issues for PDF and set to details view
+    const wasShowing = showAllIssues;
+    setShowAllIssues(true);
+    
+    // Expand all individual issues if not already
+    const allIds = new Set(issues.map(i => i.id));
+    const previousExpanded = expandedIssues;
+    setExpandedIssues(allIds);
+    
+    // Wait for render
+    await new Promise(r => setTimeout(r, 100));
+
     setIsDownloading(true);
-    // Ensure all details are visible before capture if needed, or we just capture what's there.
-    // Ideally we would expand 'showAllIssues' temporarily but that causes a layout jump user sees.
-    // For now, we rely on the user having the view they want, or we force it? 
-    // Let's just capture the current view.
     
     try {
       const canvas = await html2canvas(element, {
@@ -91,11 +125,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ lastAudit, onNewAudit }) =
       
       const filename = `seo-report-${url.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
       pdf.save(filename);
+      showNotification("PDF report downloaded successfully", "success");
     } catch (err) {
       console.error("PDF generation failed", err);
-      alert("Could not generate PDF. Please try again.");
+      showNotification("Could not generate PDF. Please try again.", "error");
     } finally {
       setIsDownloading(false);
+      if (!wasShowing) setShowAllIssues(false);
+      setExpandedIssues(previousExpanded);
     }
   };
 
@@ -204,7 +241,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ lastAudit, onNewAudit }) =
         </div>
       </div>
 
-      {/* Detailed Issues List - Always visible for report, or toggleable */}
+      {/* Detailed Issues List with AI Recommendations */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div 
             className="p-6 border-b border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors"
@@ -220,35 +257,93 @@ export const Dashboard: React.FC<DashboardProps> = ({ lastAudit, onNewAudit }) =
             {showAllIssues ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
         </div>
         
-        {/* We keep this visible if downloading to capture it, or if toggled */}
         {(showAllIssues || isDownloading) && (
             <div className="divide-y divide-slate-100">
-                {issues.map((issue, idx) => (
-                    <div key={idx} className="p-6 hover:bg-slate-50 transition-colors">
-                        <div className="flex items-start">
-                            <span className={`mt-1 flex-shrink-0 w-2 h-2 rounded-full mr-4 ${
-                                issue.severity === 'critical' ? 'bg-red-500' : 
-                                issue.severity === 'warning' ? 'bg-yellow-500' : 'bg-blue-500'
-                            }`} />
-                            <div className="flex-1">
-                                <div className="flex items-center justify-between mb-1">
-                                    <h4 className="text-sm font-semibold text-slate-900">{issue.title}</h4>
-                                    <span className={`text-xs font-medium px-2 py-0.5 rounded uppercase ${
-                                        issue.severity === 'critical' ? 'bg-red-50 text-red-700' : 
-                                        issue.severity === 'warning' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'
-                                    }`}>
-                                        {issue.severity}
-                                    </span>
+                {issues.map((issue, idx) => {
+                    const isExpanded = expandedIssues.has(issue.id) || isDownloading;
+                    const currentTab = issueTabs[issue.id] || 'details';
+                    
+                    return (
+                      <div key={idx} className="transition-colors">
+                          <div 
+                            className="p-6 cursor-pointer hover:bg-slate-50"
+                            onClick={() => toggleIssue(issue.id)}
+                          >
+                              <div className="flex items-start">
+                                  <span className={`mt-1 flex-shrink-0 w-2 h-2 rounded-full mr-4 ${
+                                      issue.severity === 'critical' ? 'bg-red-500' : 
+                                      issue.severity === 'warning' ? 'bg-yellow-500' : 'bg-blue-500'
+                                  }`} />
+                                  <div className="flex-1">
+                                      <div className="flex items-center justify-between mb-1">
+                                          <h4 className="text-sm font-semibold text-slate-900">{issue.title}</h4>
+                                          <div className="flex items-center gap-3">
+                                            <span className={`text-xs font-medium px-2 py-0.5 rounded uppercase ${
+                                                issue.severity === 'critical' ? 'bg-red-50 text-red-700' : 
+                                                issue.severity === 'warning' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'
+                                            }`}>
+                                                {issue.severity}
+                                            </span>
+                                            {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                          </div>
+                                      </div>
+                                      <p className="text-sm text-slate-600 line-clamp-1">{issue.description}</p>
+                                  </div>
+                              </div>
+                          </div>
+                          
+                          {isExpanded && (
+                            <div className="px-6 pb-6 pt-0">
+                                {/* Internal Tabs */}
+                                <div className="flex border-b border-slate-100 mb-4 ml-6">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setTabForIssue(issue.id, 'details'); }}
+                                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center ${
+                                            currentTab === 'details' 
+                                            ? 'border-brand-600 text-brand-600' 
+                                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                                        }`}
+                                    >
+                                        <Info className="w-3 h-3 mr-2" />
+                                        Issue Details
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setTabForIssue(issue.id, 'ai'); }}
+                                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center ${
+                                            currentTab === 'ai' 
+                                            ? 'border-indigo-500 text-indigo-600' 
+                                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                                        }`}
+                                    >
+                                        <Sparkles className="w-3 h-3 mr-2" />
+                                        AI Recommendation
+                                    </button>
                                 </div>
-                                <p className="text-sm text-slate-600 mb-3">{issue.description}</p>
-                                <div className="bg-slate-50 p-3 rounded text-sm text-slate-700 border border-slate-100">
-                                    <span className="font-semibold text-slate-900">Recommendation: </span>
-                                    {issue.recommendation}
-                                </div>
+
+                                {currentTab === 'details' ? (
+                                    <div className="pl-10 pr-4">
+                                        <p className="text-sm text-slate-600 leading-relaxed">{issue.description}</p>
+                                    </div>
+                                ) : (
+                                    <div className="pl-10 pr-4">
+                                        <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 relative">
+                                            <div className="absolute top-4 right-4">
+                                              <Zap className="w-4 h-4 text-indigo-400" />
+                                            </div>
+                                            <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-wide mb-2 flex items-center">
+                                              AI Recommendation
+                                            </h4>
+                                            <p className="text-sm text-indigo-900 leading-relaxed">
+                                              {issue.recommendation}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        </div>
-                    </div>
-                ))}
+                          )}
+                      </div>
+                    );
+                })}
             </div>
         )}
       </div>

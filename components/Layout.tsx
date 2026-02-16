@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Search, FileText, MessageSquare, Menu, X, Globe, Zap, LogOut, Shield } from 'lucide-react';
+import { LayoutDashboard, Search, FileText, MessageSquare, Menu, X, Globe, Zap, LogOut, Shield, History, Swords } from 'lucide-react';
 import { AppView } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -16,6 +16,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeV
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Overview', icon: LayoutDashboard },
     { id: AppView.AUDIT, label: 'Site Audit', icon: Globe },
+    { id: AppView.HISTORY, label: 'Audit History', icon: History },
+    { id: AppView.COMPETITOR_ANALYSIS, label: 'Competitor Analysis', icon: Swords },
     { id: AppView.CONTENT_OPTIMIZER, label: 'Content Optimizer', icon: FileText },
     { id: AppView.ASSISTANT, label: 'AI Assistant', icon: MessageSquare },
   ];

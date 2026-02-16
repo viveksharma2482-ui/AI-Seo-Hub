@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { analyzeContent } from '../services/gemini';
 import { ContentAnalysisResult } from '../types';
 import { Loader2, Wand2, Check, FileText } from 'lucide-react';
+import { useNotification } from '../contexts/NotificationContext';
 
 export const ContentOptimizer: React.FC = () => {
   const [content, setContent] = useState('');
   const [keywords, setKeywords] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<ContentAnalysisResult | null>(null);
+  const { showNotification } = useNotification();
 
   const handleAnalyze = async () => {
     if (!content || !keywords) return;
@@ -15,9 +17,10 @@ export const ContentOptimizer: React.FC = () => {
     try {
       const data = await analyzeContent(content, keywords);
       setResult(data);
-    } catch (error) {
+      showNotification("Content analysis complete", "success");
+    } catch (error: any) {
       console.error(error);
-      alert("Analysis failed. Please try again.");
+      showNotification(error.message || "Analysis failed. Please try again.", "error");
     } finally {
       setIsAnalyzing(false);
     }

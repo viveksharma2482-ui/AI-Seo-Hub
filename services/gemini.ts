@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SiteAuditResult, ContentAnalysisResult } from "../types";
+import { SiteAuditResult, ContentAnalysisResult, CompetitorAnalysisResult } from "../types";
 import { getPageSpeedMetrics } from "./pagespeed";
 
 // Initialize Gemini Client
@@ -163,6 +163,89 @@ export const analyzeContent = async (content: string, targetKeywords: string): P
     if (!text) throw new Error("No response from Gemini");
 
   return JSON.parse(text) as ContentAnalysisResult;
+};
+
+/**
+ * Compares 3 websites for competitive analysis.
+ */
+export const performCompetitorAnalysis = async (urls: string[]): Promise<CompetitorAnalysisResult> => {
+  // 1. Try to fetch metrics for all 3 sites
+  const metricsPromises = urls.map(url => getPageSpeedMetrics(url));
+  const pageSpeedResults = await Promise.all(metricsPromises);
+
+  // 2. Build the context for Gemini
+  let dataContext = "Here is the real-time PageSpeed data for the requested URLs (if available):\n";
+  
+  urls.forEach((url, index) => {
+    const data = pageSpeedResults[index];
+    if (data && data.lighthouseResult) {
+       const scores = {
+         performance: data.lighthouseResult.categories.performance.score * 100,
+         seo: data.lighthouseResult.categories.seo.score * 100
+       };
+       dataContext += `URL: ${url} -> Performance: ${scores.performance}, SEO Score: ${scores.seo}\n`;
+    } else {
+       dataContext += `URL: ${url} -> Real-time metrics unavailable.\n`;
+    }
+  });
+
+  const prompt = `
+    Compare the following websites for SEO and Market Performance: ${urls.join(', ')}.
+    
+    ${dataContext}
+
+    Use Google Search Grounding to ESTIMATE and retrieve the following for EACH website:
+    1. Domain Authority (DA) - estimate based on reputation/search prominence (0-100 scale).
+    2. Approximate Backlink Count (e.g., "1k+", "500", "1M+").
+    3. Organic Keywords estimation (e.g., "High volume", "Niche specific").
+    4. Top 3 Keywords they likely rank for.
+    5. Key Strengths and Weaknesses.
+
+    Also identify:
+    - Market Gap: What are these competitors missing that a new player could exploit?
+    - Strategic Recommendations: 3 specific things the first URL (${urls[0]}) should do to beat the others.
+
+    Return the data strictly as JSON.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: MODEL_NAME,
+    contents: prompt,
+    config: {
+      tools: [{ googleSearch: {} }],
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          sites: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                url: { type: Type.STRING },
+                domainAuthority: { type: Type.INTEGER, description: "Estimated DA from 0-100" },
+                backlinks: { type: Type.STRING, description: "Estimated count e.g. '1.5k'" },
+                organicKeywords: { type: Type.STRING },
+                performanceScore: { type: Type.INTEGER },
+                seoScore: { type: Type.INTEGER },
+                topKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["url", "domainAuthority", "backlinks", "topKeywords", "strengths", "weaknesses"]
+            }
+          },
+          marketGap: { type: Type.STRING },
+          strategicRecommendations: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ["sites", "marketGap", "strategicRecommendations"]
+      }
+    }
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("No response from Gemini");
+  return JSON.parse(text) as CompetitorAnalysisResult;
 };
 
 /**

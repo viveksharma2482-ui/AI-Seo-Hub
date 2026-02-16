@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { chatWithAssistant } from '../services/gemini';
 import { ChatMessage } from '../types';
 import { Send, User, Bot, Loader2 } from 'lucide-react';
+import { useNotification } from '../contexts/NotificationContext';
 import ReactMarkdown from 'react-markdown';
 
 interface AssistantProps {
@@ -20,6 +21,7 @@ export const Assistant: React.FC<AssistantProps> = ({ initialMessage }) => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { showNotification } = useNotification();
 
   useEffect(() => {
     if (initialMessage) {
@@ -66,7 +68,7 @@ export const Assistant: React.FC<AssistantProps> = ({ initialMessage }) => {
       };
 
       setMessages(prev => [...prev, botMsg]);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -75,6 +77,7 @@ export const Assistant: React.FC<AssistantProps> = ({ initialMessage }) => {
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsg]);
+      showNotification("Failed to get response from AI assistant", "error");
     } finally {
       setIsTyping(false);
     }
@@ -129,21 +132,22 @@ export const Assistant: React.FC<AssistantProps> = ({ initialMessage }) => {
             e.preventDefault();
             handleSend(input);
           }}
-          className="flex space-x-2"
+          className="flex gap-2"
         >
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask me how to fix a redirect chain..."
-            className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 text-sm"
+            placeholder="Type your message..."
+            disabled={isTyping}
+            className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-50 disabled:text-slate-400"
           />
           <button
             type="submit"
-            disabled={!input || isTyping}
+            disabled={!input.trim() || isTyping}
             className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-5 h-5" />
           </button>
         </form>
       </div>
