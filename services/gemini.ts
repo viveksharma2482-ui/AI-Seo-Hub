@@ -109,6 +109,7 @@ export const performSiteAudit = async (url: string): Promise<SiteAuditResult> =>
     const data = JSON.parse(text);
     
     return {
+      type: 'audit',
       url,
       timestamp: new Date().toISOString(),
       summary: data.summary,

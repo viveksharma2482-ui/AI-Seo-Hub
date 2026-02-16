@@ -14,6 +14,7 @@ export interface SEOIssue {
 }
 
 export interface SiteAuditResult {
+  type: 'audit'; // Discriminator
   id?: string;
   userId?: string;
   url: string;
@@ -44,10 +45,18 @@ export interface SiteComparisonData {
 }
 
 export interface CompetitorAnalysisResult {
+  type: 'comparison'; // Discriminator
+  id?: string;
+  userId?: string;
+  timestamp: string; // Added for history
+  primaryUrl: string; // Added for reference
   sites: SiteComparisonData[];
   marketGap: string;
   strategicRecommendations: string[];
 }
+
+// Union type for all history items
+export type HistoryItem = SiteAuditResult | CompetitorAnalysisResult;
 
 export interface ContentAnalysisResult {
   score: number;

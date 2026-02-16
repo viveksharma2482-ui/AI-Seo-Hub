@@ -1,4 +1,4 @@
-import { SiteAuditResult, User } from '../types';
+import { SiteAuditResult, CompetitorAnalysisResult, HistoryItem, User } from '../types';
 
 const STORAGE_KEYS = {
   AUDITS: 'seo_audits_db',
@@ -100,45 +100,48 @@ export const db = {
     localStorage.removeItem(STORAGE_KEYS.USER);
   },
 
-  // Audit Operations
-  saveAudit: (audit: SiteAuditResult) => {
+  // Audit & History Operations
+  saveAudit: (item: HistoryItem) => {
     try {
       // Use getAudits to safely parse existing data
-      const audits = db.getAudits();
+      const history = db.getAudits();
       
       // Add ID if missing
-      if (!audit.id) {
-        audit.id = 'audit_' + Date.now();
+      if (!item.id) {
+        item.id = (item.type === 'comparison' ? 'comp_' : 'audit_') + Date.now();
       }
       
       // Add to beginning and LIMIT to 50 items to prevent LocalStorage quota exceeded errors
-      const newAudits = [audit, ...audits].slice(0, 50);
+      const newHistory = [item, ...history].slice(0, 50);
       
-      localStorage.setItem(STORAGE_KEYS.AUDITS, JSON.stringify(newAudits));
-      return newAudits;
+      localStorage.setItem(STORAGE_KEYS.AUDITS, JSON.stringify(newHistory));
+      return newHistory;
     } catch (e) {
-      console.error("Failed to save audit - Storage might be full", e);
+      console.error("Failed to save history item - Storage might be full", e);
       // Try to save at least the new one if possible, or just fail gracefully
       return [];
     }
   },
 
-  getAudits: (userId?: string): SiteAuditResult[] => {
+  getAudits: (userId?: string): HistoryItem[] => {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.AUDITS);
-      const allAudits = data ? JSON.parse(data) : [];
+      const allHistory = data ? JSON.parse(data) : [];
       if (userId) {
-          return allAudits.filter((a: any) => a.userId === userId);
+          return allHistory.filter((a: any) => a.userId === userId);
       }
-      return allAudits;
+      return allHistory;
     } catch (e) {
-      console.error("Error reading audits DB", e);
+      console.error("Error reading history DB", e);
       return [];
     }
   },
 
+  // Specifically gets the latest SITE AUDIT (ignoring comparisons) for the dashboard
   getLatestAudit: (userId?: string): SiteAuditResult | null => {
-    const audits = db.getAudits(userId);
+    const history = db.getAudits(userId);
+    // Filter for type 'audit'
+    const audits = history.filter((h): h is SiteAuditResult => h.type === 'audit' || h.type === undefined); // handle legacy data where type might be missing
     return audits.length > 0 ? audits[0] : null;
   },
 
@@ -148,15 +151,15 @@ export const db = {
 
   // Admin / System Stats Simulation (Using Real Data)
   getSystemStats: () => {
-    const realAudits = db.getAudits(); // Get ALL audits for admin stats
+    const realHistory = db.getAudits(); // Get ALL audits for admin stats
     const realUsers = db.getAllUsers();
     
     // Calculate simple activity data (audits per day - mocked distribution based on real count)
-    const totalAudits = realAudits.length;
+    const totalActivity = realHistory.length;
     
     return {
       totalUsers: realUsers.length,
-      totalAudits: totalAudits,
+      totalAudits: totalActivity,
       activeToday: 1, // At least the current admin
       users: realUsers.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
     };
@@ -173,7 +176,7 @@ export const db = {
   exportData: () => {
     return {
       users: JSON.parse(localStorage.getItem(STORAGE_KEYS.ACCOUNTS) || '[]'),
-      audits: JSON.parse(localStorage.getItem(STORAGE_KEYS.AUDITS) || '[]'),
+      history: JSON.parse(localStorage.getItem(STORAGE_KEYS.AUDITS) || '[]'), // Renamed key in export for clarity, mapped to audits in localstorage
       exportedAt: new Date().toISOString()
     };
   },
@@ -182,7 +185,10 @@ export const db = {
     if (jsonData.users && Array.isArray(jsonData.users)) {
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(jsonData.users));
     }
-    if (jsonData.audits && Array.isArray(jsonData.audits)) {
+    // Handle both 'audits' (legacy backup) and 'history' (new backup) keys
+    if (jsonData.history && Array.isArray(jsonData.history)) {
+      localStorage.setItem(STORAGE_KEYS.AUDITS, JSON.stringify(jsonData.history));
+    } else if (jsonData.audits && Array.isArray(jsonData.audits)) {
       localStorage.setItem(STORAGE_KEYS.AUDITS, JSON.stringify(jsonData.audits));
     }
   }

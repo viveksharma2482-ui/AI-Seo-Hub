@@ -1,15 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { performCompetitorAnalysis } from '../services/gemini';
 import { CompetitorAnalysisResult } from '../types';
-import { Search, Loader2, ArrowRight, TrendingUp, Shield, Link, Zap, Target, Award } from 'lucide-react';
+import { Search, Loader2, ArrowRight, TrendingUp, Shield, Link, Zap, Target, Award, Download, Calendar } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
-export const CompetitorAnalysis: React.FC = () => {
+interface CompetitorAnalysisProps {
+  onAnalysisComplete?: (result: CompetitorAnalysisResult) => void;
+  initialResult?: CompetitorAnalysisResult | null;
+}
+
+export const CompetitorAnalysis: React.FC<CompetitorAnalysisProps> = ({ onAnalysisComplete, initialResult }) => {
   const [urls, setUrls] = useState<string[]>(['', '', '']);
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<CompetitorAnalysisResult | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [result, setResult] = useState<CompetitorAnalysisResult | null>(initialResult || null);
   const { showNotification } = useNotification();
+
+  // If initialResult changes (e.g. loaded from history), update state
+  useEffect(() => {
+    if (initialResult) {
+      setResult(initialResult);
+      // Pre-fill URL inputs based on the result
+      const newUrls = ['', '', ''];
+      initialResult.sites.forEach((site, i) => {
+        if (i < 3) newUrls[i] = site.url;
+      });
+      setUrls(newUrls);
+    }
+  }, [initialResult]);
 
   const handleUrlChange = (index: number, value: string) => {
     const newUrls = [...urls];
@@ -28,14 +49,76 @@ export const CompetitorAnalysis: React.FC = () => {
 
     setIsLoading(true);
     try {
+      // 1. Perform Analysis
       const data = await performCompetitorAnalysis(validUrls);
-      setResult(data);
+      
+      // 2. Add metadata required for history
+      const fullResult: CompetitorAnalysisResult = {
+        ...data,
+        type: 'comparison',
+        timestamp: new Date().toISOString(),
+        primaryUrl: validUrls[0] // Assume first one is primary
+      };
+
+      setResult(fullResult);
       showNotification("Comparison complete!", "success");
+      
+      // 3. Callback to save to DB
+      if (onAnalysisComplete) {
+        onAnalysisComplete(fullResult);
+      }
+
     } catch (err: any) {
       console.error(err);
       showNotification("Failed to analyze competitors. Please try again.", "error");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    const element = document.getElementById('competitor-analysis-report');
+    if (!element) return;
+    
+    setIsDownloading(true);
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      // Landscape mode ('l') for wider tables/comparisons
+      const pdf = new jsPDF('l', 'mm', 'a4'); 
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+      
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+      
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+      
+      const filename = `competitor-analysis-${new Date().toISOString().split('T')[0]}.pdf`;
+      pdf.save(filename);
+      showNotification("Report downloaded successfully", "success");
+    } catch (err) {
+      console.error(err);
+      showNotification("Failed to generate PDF", "error");
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -49,8 +132,22 @@ export const CompetitorAnalysis: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Competitor Analysis</h1>
-        <p className="text-slate-500 mb-6">Compare your website against up to 2 competitors to uncover content gaps, backlink opportunities, and performance differences.</p>
+        <div className="flex justify-between items-start mb-6">
+            <div>
+                <h1 className="text-2xl font-bold text-slate-900 mb-2">Competitor Analysis</h1>
+                <p className="text-slate-500">Compare your website against up to 2 competitors to uncover content gaps, backlink opportunities, and performance differences.</p>
+            </div>
+            {result && (
+                <button
+                    onClick={handleDownloadPDF}
+                    disabled={isDownloading}
+                    className="flex items-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition-colors shadow-sm"
+                >
+                    <Download className="w-4 h-4 mr-2" />
+                    {isDownloading ? 'Exporting...' : 'Download Report'}
+                </button>
+            )}
+        </div>
         
         <form onSubmit={handleAnalyze} className="space-y-4 max-w-3xl">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -95,7 +192,13 @@ export const CompetitorAnalysis: React.FC = () => {
       </div>
 
       {result && (
-        <div className="space-y-6 animate-slide-in-down">
+        <div id="competitor-analysis-report" className="space-y-6 animate-slide-in-down bg-slate-50 p-2">
+            {/* Header for PDF context */}
+            <div className="hidden print:block mb-4">
+                <h2 className="text-2xl font-bold text-slate-900">Competitor Analysis Report</h2>
+                <p className="text-slate-500">Generated on {new Date().toLocaleDateString()}</p>
+            </div>
+
             {/* High Level Stats Comparison */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {result.sites.map((site, idx) => (

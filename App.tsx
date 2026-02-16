@@ -9,7 +9,7 @@ import { HistoryView } from './components/HistoryView';
 import { CompetitorAnalysis } from './components/CompetitorAnalysis';
 import { Login } from './components/Login';
 import { Toast } from './components/Toast';
-import { AppView, SiteAuditResult, SEOIssue } from './types';
+import { AppView, SiteAuditResult, SEOIssue, CompetitorAnalysisResult, HistoryItem } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { db } from './services/db';
@@ -17,7 +17,10 @@ import { db } from './services/db';
 const AppContent = () => {
   const { user, isLoading } = useAuth();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
+  
+  // State for different view data
   const [lastAudit, setLastAudit] = useState<SiteAuditResult | null>(null);
+  const [lastComparison, setLastComparison] = useState<CompetitorAnalysisResult | null>(null);
   const [assistantInitialMessage, setAssistantInitialMessage] = useState<string | undefined>(undefined);
 
   // If auth is loading, we could show a spinner, but simplest to wait
@@ -28,12 +31,22 @@ const AppContent = () => {
     return <Login />;
   }
 
+  // Handle saving new audit
   const handleAuditComplete = (result: SiteAuditResult) => {
-    // Save to local database with userId
-    const auditWithUser = { ...result, userId: user.id };
+    // Save to local database with userId and type
+    const auditWithUser: SiteAuditResult = { ...result, userId: user.id, type: 'audit' };
     db.saveAudit(auditWithUser);
     setLastAudit(auditWithUser);
     setCurrentView(AppView.DASHBOARD);
+  };
+
+  // Handle saving new comparison
+  const handleComparisonComplete = (result: CompetitorAnalysisResult) => {
+    // userId is already added in component if needed, but lets ensure consistency
+    const comparisonWithUser: CompetitorAnalysisResult = { ...result, userId: user.id, type: 'comparison' };
+    db.saveAudit(comparisonWithUser);
+    setLastComparison(comparisonWithUser);
+    // Stay on view or redirect? Usually stay to see result.
   };
 
   const handleFixIssue = (issue: SEOIssue) => {
@@ -42,9 +55,16 @@ const AppContent = () => {
     setCurrentView(AppView.ASSISTANT);
   };
 
-  const handleSelectAudit = (audit: SiteAuditResult) => {
-    setLastAudit(audit);
-    setCurrentView(AppView.DASHBOARD);
+  // Handle selecting any item from history
+  const handleSelectHistoryItem = (item: HistoryItem) => {
+    if (item.type === 'comparison') {
+        setLastComparison(item as CompetitorAnalysisResult);
+        setCurrentView(AppView.COMPETITOR_ANALYSIS);
+    } else {
+        // Default to audit
+        setLastAudit(item as SiteAuditResult);
+        setCurrentView(AppView.DASHBOARD);
+    }
   };
 
   const renderContent = () => {
@@ -67,11 +87,16 @@ const AppContent = () => {
       case AppView.HISTORY:
         return (
           <HistoryView 
-            onSelectAudit={handleSelectAudit} 
+            onSelectAudit={handleSelectHistoryItem} 
           />
         );
       case AppView.COMPETITOR_ANALYSIS:
-        return <CompetitorAnalysis />;
+        return (
+            <CompetitorAnalysis 
+                onAnalysisComplete={handleComparisonComplete}
+                initialResult={lastComparison}
+            />
+        );
       case AppView.CONTENT_OPTIMIZER:
         return <ContentOptimizer />;
       case AppView.ASSISTANT:

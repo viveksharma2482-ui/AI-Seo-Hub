@@ -17,7 +17,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ lastAudit, onNewAudit }) =
   const { user } = useAuth();
   // If no lastAudit passed, try to get the latest from DB for this user
   const displayAudit = lastAudit || db.getLatestAudit(user?.id);
-  const history = user ? db.getAudits(user.id) : [];
+  // Filter history to only include Site Audits, excluding Competitor Analysis, as the table structure relies on audit-specific properties
+  const history = user 
+    ? db.getAudits(user.id).filter((item): item is SiteAuditResult => item.type === 'audit' || item.type === undefined) 
+    : [];
   
   const [isDownloading, setIsDownloading] = useState(false);
   const [showAllIssues, setShowAllIssues] = useState(false);
